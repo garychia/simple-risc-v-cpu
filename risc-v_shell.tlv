@@ -45,7 +45,9 @@
    
    
    // Program Counter Implementation
-   $next_pc[31:0] = $reset ? 32'b0 : $pc + 32'd4;
+   $next_pc[31:0] = $reset ? 32'b0 :
+                    $is_b && $taken_br ? $br_tgt_pc :
+                    $pc + 32'd4;
    $pc[31:0] = >>1$next_pc;
    
    // IMem (Instruction Memory)
@@ -77,7 +79,7 @@
    $funct3_valid = $is_r_instr || $is_i_instr || $is_s_instr || $is_b_instr;
    $rs1_valid = $is_r_instr || $is_i_instr || $is_s_instr || $is_b_instr;
    $rs2_valid = $is_r_instr || $is_s_instr || $is_b_instr;
-   $rd_valid = $is_r_instr || $is_i_instr || $is_u_instr || $is_j_instr;
+   $rd_valid = $rd != 5'b0 && ($is_r_instr || $is_i_instr || $is_u_instr || $is_j_instr);
    $imm_valid = $is_i_instr || $is_s_instr || $is_b_instr || $is_u_instr || $is_j_instr;
    // Suppress warnings.
    `BOGUS_USE($rd $rd_valid $rs1 $rs1_valid $funct3 $funct3_valid $rs2 $rs2_valid $imm_valid);
@@ -101,11 +103,28 @@
    $is_add = $dec_bits == 11'b0_000_0110011;
    `BOGUS_USE($is_beq $is_bne $is_blt $is_bge $is_bltu $is_bgeu $is_addi $is_add)
    
-   // Assert these to end simulation (before Makerchip cycle limit).
-   *passed = 1'b0;
-   *failed = *cyc_cnt > M4_MAX_CYC;
+   // ALU
+   $result[31:0] = $is_addi ? $src1_value + $imm :
+                   $is_add ? $src1_value + $src2_value :
+                   32'b0;
    
-   m4+rf(32, 32, $reset, $wr_en, $wr_index[4:0], $wr_data[31:0], $rd1_en, $rd1_index[4:0], $rd1_data, $rd2_en, $rd2_index[4:0], $rd2_data)
+   // Branch
+   $is_b = $is_beq || $is_bne || $is_blt || $is_bge || $is_bltu || $is_bgeu;
+   $taken_br = $is_beq ? $src1_value == $src2_value :
+               $is_bne ? $src1_value != $src2_value :
+               $is_blt ? ($src1_value < $src2_value) ^ ($src1_value[31] != $src2_value[31]) :
+               $is_bge ? ($src1_value >= $src2_value) ^ ($src1_value[31] != $src2_value[31]) :
+               $is_bltu ? $src1_value < $src2_value :
+               $is_bgeu ? $src1_value >= $src2_value :
+               1'b0;
+   $br_tgt_pc[31:0] = $pc + $imm;
+   
+   // Assert these to end simulation (before Makerchip cycle limit).
+   m4+tb()
+   *failed = *cyc_cnt > M4_MAX_CYC;
+
+   // Register File
+   m4+rf(32, 32, $reset, $rd_valid, $rd, $result, $rs1_valid, $rs1, $src1_value, $rs2_valid, $rs2, $src2_value)
    //m4+dmem(32, 32, $reset, $addr[4:0], $wr_en, $wr_data[31:0], $rd_en, $rd_data)
    m4+cpu_viz()
 \SV
